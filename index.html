@@ -17,6 +17,11 @@
     </div>
 
     <div class="section-label">FAILURE CONTROL</div>
+    <div class="row"><span>Break Position</span><strong id="breakPositionValue">300 m from ship</strong></div>
+    <input id="breakPositionSlider" type="range" min="0" max="600" value="300" step="10" />
+    <div class="wind-scale">
+      <span>0 m SHIP</span><span>300 m</span><span>600 m KITE</span>
+    </div>
     <button id="breakBtn" class="danger-btn">BREAK TETHER</button>
     <button id="resetBtn" class="secondary-btn">RESET</button>
 
@@ -27,6 +32,9 @@
     <div class="section-label">KITE / TETHER</div>
     <div class="row"><span>Kite Area</span><strong>600 m²</strong></div>
     <div class="row"><span>Line Length</span><strong id="lineLength">600 m</strong></div>
+    <div class="row"><span>Kite-side Line</span><strong id="kiteSideLine">300 m</strong></div>
+    <div class="row"><span>Ship-side Line</span><strong id="shipSideLine">300 m</strong></div>
+    <div class="row"><span>Kite-side Line Mass*</span><strong id="lineMass">186 kg</strong></div>
     <div class="row"><span>Elevation</span><strong id="elevation">30.0°</strong></div>
     <div class="row"><span>Altitude</span><strong id="altitude">-- m</strong></div>
     <div class="row"><span>Kite Speed</span><strong id="kiteSpeed">-- m/s</strong></div>
@@ -46,6 +54,8 @@
       <span>0° BOW</span><span>90° STBD</span><span>180° ASTERN</span><span>270° PORT</span>
     </div>
 
+    <div class="row"><span>Water Flow rel. Ship</span><strong id="waterFlowValue">12 kn AFT</strong></div>
+
     <div class="section-label">FAILURE DATA</div>
     <div class="row"><span>Time after break</span><strong id="breakTime">--</strong></div>
     <div class="row"><span>Impact speed</span><strong id="impactSpeed">--</strong></div>
@@ -60,8 +70,12 @@
       Display frame is ship-fixed.<br>
       Internal physics includes ship advance.<br>
       Wind angle = direction wind comes FROM.<br>
-      Broken-line model assumes failure at/near ship terminal, so most of the 600 m Dyneema line remains with the kite.<br>
-      *Concept-study aerodynamic / rope model.
+      Break Position is measured from the ship terminal toward the kite.<br>
+      0 m = ship-terminal break (ship-side line 0 m).<br>
+      300 m = mid-line break (300 m + 300 m).<br>
+      600 m = kite-terminal break (kite-side line 0 m).<br>
+      Kite-side rope weight, aerodynamic drag and line tension feed back into kite motion.<br>
+      *Rope diameter / linear mass are provisional until actual line data are entered.
     </div>
   </div>
 
