@@ -38,8 +38,13 @@
     <div class="row"><span>Distance from Ship</span><strong id="relDistance">-- m</strong></div>
 
     <div class="section-label">ENVIRONMENT</div>
-    <div class="row"><span>True Wind</span><strong id="windValue">18 kn</strong></div>
+    <div class="row"><span>True Wind Speed</span><strong id="windValue">18 kn</strong></div>
     <input id="windSlider" type="range" min="8" max="30" value="18" step="1" />
+    <div class="row"><span>True Wind Angle</span><strong id="windAngleValue">180° (FROM ASTERN)</strong></div>
+    <input id="windAngleSlider" type="range" min="0" max="359" value="180" step="1" />
+    <div class="wind-scale">
+      <span>0° BOW</span><span>90° STBD</span><span>180° ASTERN</span><span>270° PORT</span>
+    </div>
 
     <div class="section-label">FAILURE DATA</div>
     <div class="row"><span>Time after break</span><strong id="breakTime">--</strong></div>
@@ -54,7 +59,9 @@
     <div class="hint">
       Display frame is ship-fixed.<br>
       Internal physics includes ship advance.<br>
-      *Concept-study aerodynamic model.
+      Wind angle = direction wind comes FROM.<br>
+      Broken-line model assumes failure at/near ship terminal, so most of the 600 m Dyneema line remains with the kite.<br>
+      *Concept-study aerodynamic / rope model.
     </div>
   </div>
 

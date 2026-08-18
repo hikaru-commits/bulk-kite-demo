@@ -9,7 +9,8 @@ breakTimeEl=$('breakTime'), impactSpeedEl=$('impactSpeed'), impactPositionEl=$('
 breakBtn=$('breakBtn'), resetBtn=$('resetBtn'), windSlider=$('windSlider'),
 windValue=$('windValue'), eventBanner=$('eventBanner'),
 shipSpeedSlider=$('shipSpeedSlider'), shipSpeedValue=$('shipSpeedValue'),
-relAheadEl=$('relAhead'), relSideEl=$('relSide'), relDistanceEl=$('relDistance');
+relAheadEl=$('relAhead'), relSideEl=$('relSide'), relDistanceEl=$('relDistance'),
+windAngleSlider=$('windAngleSlider'), windAngleValue=$('windAngleValue');
 
 const SHIP={loa:299.99,lpp:296,breadth:50,depth:25};
 const KITE={area:600,cableLength:600,elevationDeg:30,mass:650,CLmax:1.05,CD0:.22,inducedK:.16,waterCd:1.35};
@@ -17,7 +18,19 @@ const AIR_RHO=1.225, WATER_RHO=1025, G=9.81;
 
 const STATES={TOWING:'TOWING',AIRBORNE:'AIRBORNE',IMPACT:'IMPACT',WATER:'WATER',DRIFT:'DRIFT'};
 let state=STATES.TOWING;
-let breakElapsed=0, simTime=0, windKnots=18, shipSpeedKnots=12, impactRecorded=false, waterEntryTime=0;
+let breakElapsed=0, simTime=0, windKnots=18, windAngleDeg=180, shipSpeedKnots=12, impactRecorded=false, waterEntryTime=0;
+
+// Broken-rope model:
+// Assume failure occurs at/near the ship-side terminal.
+// Therefore almost the full 600 m Dyneema line remains attached to the kite.
+// Dyneema/UHMWPE is modeled as negatively buoyant in air (gravity) and slightly buoyant in seawater.
+const ROPE = {
+  nodes: 31,
+  length: KITE.cableLength,
+  airDrag: 0.55,
+  waterDrag: 3.5,
+  waterBuoyantAccel: 0.55
+};
 
 // WORLD FRAME:
 // +X = ship's heading / advance direction
@@ -151,11 +164,27 @@ const tetherGeo=new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(),ne
 const tetherLine=new THREE.Line(tetherGeo,new THREE.LineBasicMaterial({color:0xf2f5f6}));
 scene.add(tetherLine);
 
-const shipCableGeo=new THREE.BufferGeometry(), kiteCableGeo=new THREE.BufferGeometry();
+const shipCableGeo=new THREE.BufferGeometry();
 const shipCable=new THREE.Line(shipCableGeo,new THREE.LineBasicMaterial({color:0xe8edf0}));
 shipCable.visible=false; scene.add(shipCable);
-const kiteCable=new THREE.Line(kiteCableGeo,new THREE.LineBasicMaterial({color:0xdde4e8}));
-kiteCable.visible=false; scene.add(kiteCable);
+
+// The kite-side broken line is a particle rope, not a decorative line.
+// This lets gravity pull the Dyneema line BELOW the kite after failure.
+const kiteCableGeo=new THREE.BufferGeometry();
+const kiteCable=new THREE.Line(
+  kiteCableGeo,
+  new THREE.LineBasicMaterial({color:0xdde4e8})
+);
+kiteCable.visible=false;
+scene.add(kiteCable);
+
+const ropePos=[];
+const ropePrev=[];
+for(let i=0;i<ROPE.nodes;i++){
+  ropePos.push(new THREE.Vector3());
+  ropePrev.push(new THREE.Vector3());
+}
+const ropeSegmentLength=ROPE.length/(ROPE.nodes-1);
 
 // Trail in display frame.
 const trailPoints=[], trailGeo=new THREE.BufferGeometry();
@@ -170,6 +199,24 @@ const impactRing=new THREE.Mesh(
   new THREE.MeshBasicMaterial({color:0xffffff,transparent:true,opacity:0,side:THREE.DoubleSide})
 );
 impactRing.rotation.x=-Math.PI/2; impactRing.position.y=.4; scene.add(impactRing);
+
+// Wind direction visualization in the ship-fixed display frame.
+const windArrow = new THREE.ArrowHelper(
+  new THREE.Vector3(1,0,0),
+  new THREE.Vector3(-40,115,-70),
+  95,
+  0xffef8a,
+  16,
+  8
+);
+scene.add(windArrow);
+
+function updateWindArrow(){
+  const w = trueWindWorld();
+  const dir = w.lengthSq() > 0 ? w.clone().normalize() : new THREE.Vector3(1,0,0);
+  windArrow.setDirection(dir);
+  windArrow.setLength(75 + windKnots*1.5, 16, 8);
+}
 
 // Wake particles emphasize ship-fixed display frame.
 const foam=[];
@@ -190,9 +237,20 @@ function shipVelocityWorld(){
 }
 
 // True wind in earth/world frame.
-// Positive +X means wind mass moving toward ship's heading direction.
+// True Wind Angle (TWA) is the direction the wind COMES FROM,
+// measured clockwise from the bow:
+// 0° = from bow (head wind)
+// 90° = from starboard
+// 180° = from astern (following wind)
+// 270° = from port
 function trueWindWorld(){
-  return new THREE.Vector3(knotsToMs(windKnots),0,2);
+  const s = knotsToMs(windKnots);
+  const a = THREE.MathUtils.degToRad(windAngleDeg);
+  return new THREE.Vector3(
+    -s * Math.cos(a),
+    0,
+    -s * Math.sin(a)
+  );
 }
 
 function displayPositionFromWorld(worldPos){
@@ -304,6 +362,19 @@ function breakTether(){
   kiteCable.visible=true;
   breakBtn.disabled=true;
 
+  // Initialize the 600 m rope along the pre-break tether in WORLD coordinates.
+  // Node 0 remains attached to the kite; the former ship end becomes free.
+  towingUnit.getWorldPosition(towOriginDisplay);
+  const towOriginWorld = shipWorldPos.clone().add(towOriginDisplay);
+  const shipVel = shipVelocityWorld();
+  for(let i=0;i<ROPE.nodes;i++){
+    const f=i/(ROPE.nodes-1);
+    // f=0 kite end, f=1 former ship end
+    ropePos[i].copy(kiteWorldPos).lerp(towOriginWorld,f);
+    const initVel=kiteWorldVel.clone().lerp(shipVel,f);
+    ropePrev[i].copy(ropePos[i]).addScaledVector(initVel,-1/60);
+  }
+
   impactSpeedEl.textContent='--';
   impactPositionEl.textContent='--';
 
@@ -342,29 +413,69 @@ function aeroForces(){
   return {lift,drag};
 }
 
-function updateBrokenCables(t){
+function updateBrokenRope(dt,t){
   towingUnit.getWorldPosition(towOriginDisplay);
-  const displayKite=displayPositionFromWorld(kiteWorldPos);
 
-  const sEnd=towOriginDisplay.clone().add(new THREE.Vector3(
-    -25-7*Math.min(breakElapsed,5),
-    -8-5*Math.min(breakElapsed,5),
-    4*Math.sin(t*1.4)
-  ));
+  // Short ship-side stump after terminal failure.
+  const stumpEnd=towOriginDisplay.clone().add(
+    new THREE.Vector3(-8,-4,2*Math.sin(t*1.7))
+  );
   shipCableGeo.setFromPoints([
     towOriginDisplay.clone(),
-    towOriginDisplay.clone().lerp(sEnd,.55).add(new THREE.Vector3(0,-6,0)),
-    sEnd
+    towOriginDisplay.clone().lerp(stumpEnd,.55).add(new THREE.Vector3(0,-2,0)),
+    stumpEnd
   ]);
 
-  const relVel=kiteWorldVel.clone().sub(shipVelocityWorld());
-  const vdir=relVel.lengthSq()>.1?relVel.normalize():new THREE.Vector3(-1,0,0);
-  const kEnd=displayKite.clone().addScaledVector(vdir,-75).add(new THREE.Vector3(0,-35,0));
-  kiteCableGeo.setFromPoints([
-    displayKite.clone(),
-    displayKite.clone().lerp(kEnd,.55).add(new THREE.Vector3(0,-10,0)),
-    kEnd
-  ]);
+  const wind=trueWindWorld();
+
+  // Verlet integration of all free rope nodes except node 0 (kite attachment).
+  for(let i=1;i<ROPE.nodes;i++){
+    const cur=ropePos[i];
+    const prev=ropePrev[i];
+    const velocity=cur.clone().sub(prev);
+    prev.copy(cur);
+
+    const accel=new THREE.Vector3();
+
+    if(cur.y>0){
+      accel.y-=G;
+      const relAir=wind.clone().sub(velocity.clone().multiplyScalar(60));
+      accel.addScaledVector(relAir,ROPE.airDrag*0.015);
+    }else{
+      // Dyneema/UHMWPE floats in seawater: slight net upward acceleration,
+      // plus very strong hydrodynamic damping.
+      accel.y+=ROPE.waterBuoyantAccel;
+      accel.addScaledVector(velocity, -ROPE.waterDrag);
+    }
+
+    cur.add(velocity).addScaledVector(accel,dt*dt);
+  }
+
+  // The kite-end node is attached.
+  ropePos[0].copy(kiteWorldPos);
+
+  // Distance constraints preserve the 600 m rope length.
+  for(let iter=0;iter<8;iter++){
+    ropePos[0].copy(kiteWorldPos);
+    for(let i=0;i<ROPE.nodes-1;i++){
+      const a=ropePos[i], b=ropePos[i+1];
+      const delta=b.clone().sub(a);
+      const d=Math.max(delta.length(),0.0001);
+      const error=(d-ropeSegmentLength)/d;
+
+      if(i===0){
+        // node 0 is fixed to kite, so move only node 1
+        b.addScaledVector(delta,-error);
+      }else{
+        a.addScaledVector(delta, error*.5);
+        b.addScaledVector(delta,-error*.5);
+      }
+    }
+  }
+
+  // Convert world rope points to ship-fixed display coordinates.
+  const displayPoints=ropePos.map(pt=>displayPositionFromWorld(pt));
+  kiteCableGeo.setFromPoints(displayPoints);
 }
 
 function updateAirborne(dt){
@@ -491,7 +602,7 @@ function updateFailure(dt){
   else if(state===STATES.WATER) updateWater(dt);
   else if(state===STATES.DRIFT) updateDrift(dt);
 
-  updateBrokenCables(simTime);
+  updateBrokenRope(dt,simTime);
 
   const displayPos=displayPositionFromWorld(kiteWorldPos);
   altitudeEl.textContent=`${Math.max(0,displayPos.y).toFixed(1)} m`;
@@ -536,6 +647,10 @@ function resetSimulation(){
   shipCable.visible=false;
   kiteCable.visible=false;
   tetherLine.visible=true;
+  for(let i=0;i<ROPE.nodes;i++){
+    ropePos[i].set(0,0,0);
+    ropePrev[i].set(0,0,0);
+  }
   impactRing.material.opacity=0;
   breakBtn.disabled=false;
 
@@ -554,9 +669,28 @@ function resetSimulation(){
 breakBtn.addEventListener('click',breakTether);
 resetBtn.addEventListener('click',resetSimulation);
 
+function windAngleLabel(deg){
+  const d=((deg%360)+360)%360;
+  if(d<22.5 || d>=337.5) return 'FROM BOW';
+  if(d<67.5) return 'FROM STBD BOW';
+  if(d<112.5) return 'FROM STBD';
+  if(d<157.5) return 'FROM STBD QTR';
+  if(d<202.5) return 'FROM ASTERN';
+  if(d<247.5) return 'FROM PORT QTR';
+  if(d<292.5) return 'FROM PORT';
+  return 'FROM PORT BOW';
+}
+
 windSlider.addEventListener('input',()=>{
   windKnots=Number(windSlider.value);
   windValue.textContent=`${windKnots} kn`;
+  updateWindArrow();
+});
+
+windAngleSlider.addEventListener('input',()=>{
+  windAngleDeg=Number(windAngleSlider.value);
+  windAngleValue.textContent=`${windAngleDeg}° (${windAngleLabel(windAngleDeg)})`;
+  updateWindArrow();
 });
 
 shipSpeedSlider.addEventListener('input',()=>{
@@ -595,5 +729,6 @@ addEventListener('resize',()=>{
   renderer.setSize(innerWidth,innerHeight);
 });
 
+updateWindArrow();
 resetSimulation();
 animate();
